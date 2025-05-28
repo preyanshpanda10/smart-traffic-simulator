@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Traffic Flow Optimizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f2f5;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      background-color: #0077cc;
+      color: white;
+      padding: 10px;
+      margin: 0;
+    }
+    #controls {
+      margin: 15px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 15px;
+      font-size: 14px;
+      background-color: #0077cc;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    canvas {
+      border: 2px solid #444;
+      background-color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚦 Smart Traffic Flow Optimizer</h1>
+  <div id="controls">
+    <button onclick="addVehicle()">Add Vehicle</button>
+    <button onclick="resetMap()">Reset</button>
+  </div>
+  <canvas id="trafficCanvas" width="600" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById("trafficCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const GRID_SIZE = 10;
+    const CELL_SIZE = 60;
+    const SPEED = 0.05; // interpolation speed
+
+    let vehicles = [];
+    let graph = [];
+    let trafficDensity = [];
+
+    function initGraph() {
+      graph = [];
+      trafficDensity = [];
+      for (let i = 0; i < GRID_SIZE; i++) {
+        graph[i] = [];
+        trafficDensity[i] = [];
+        for (let j = 0; j < GRID_SIZE; j++) {
+          graph[i][j] = { x: i, y: j };
+          trafficDensity[i][j] = 0;
+        }
+      }
+    }
+
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+          const density = trafficDensity[i][j];
+          ctx.fillStyle = density === 0 ? "#ddd" : `rgba(255,0,0,${Math.min(1, density / 4)})`;
+          ctx.fillRect(j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+          ctx.strokeRect(j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        }
+      }
+      vehicles.forEach(drawVehicle);
+    }
+
+    function drawVehicle(vehicle) {
+      let { x, y } = vehicle.visualPos;
+      ctx.fillStyle = "blue";
+      ctx.beginPath();
+      ctx.arc(x * CELL_SIZE + 30, y * CELL_SIZE + 30, 10, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    function getNeighbors({ x, y }) {
+      const neighbors = [];
+      if (x > 0) neighbors.push({ x: x - 1, y });
+      if (x < GRID_SIZE - 1) neighbors.push({ x: x + 1, y });
+      if (y > 0) neighbors.push({ x, y: y - 1 });
+      if (y < GRID_SIZE - 1) neighbors.push({ x, y: y + 1 });
+      return neighbors;
+    }
+
+    // Dijkstra with congestion cost (acts like Min-Cost Max-Flow approximation)
+    function minCostPath(start, end) {
+      const queue = [{ pos: start, cost: 0, path: [] }];
+      const visited = {};
+
+      while (queue.length) {
+        queue.sort((a, b) => a.cost - b.cost);
+        const { pos, path, cost } = queue.shift();
+        const key = `${pos.x},${pos.y}`;
+        if (visited[key]) continue;
+        visited[key] = true;
+
+        const newPath = [...path, pos];
+        if (pos.x === end.x && pos.y === end.y) return newPath;
+
+        getNeighbors(pos).forEach(n => {
+          const penalty = 1 + trafficDensity[n.y][n.x]; // cost increases with congestion
+          queue.push({ pos: n, path: newPath, cost: cost + penalty });
+        });
+      }
+      return [];
+    }
+
+    function addVehicle() {
+      const start = { x: 0, y: 0 };
+      const end = { x: GRID_SIZE - 1, y: GRID_SIZE - 1 };
+      const path = minCostPath(start, end);
+      if (path.length === 0) return;
+
+      vehicles.push({
+        path,
+        index: 0,
+        position: { ...start },
+        visualPos: { ...start },
+      });
+    }
+
+    function updateVehicles() {
+      vehicles.forEach(vehicle => {
+        if (vehicle.index < vehicle.path.length - 1) {
+          const current = vehicle.path[vehicle.index];
+          const next = vehicle.path[vehicle.index + 1];
+
+          const dx = next.x - vehicle.visualPos.x;
+          const dy = next.y - vehicle.visualPos.y;
+
+          vehicle.visualPos.x += dx * SPEED;
+          vehicle.visualPos.y += dy * SPEED;
+
+          // Move to next grid cell once visually close enough
+          if (Math.abs(vehicle.visualPos.x - next.x) < 0.05 &&
+              Math.abs(vehicle.visualPos.y - next.y) < 0.05) {
+            vehicle.visualPos = { ...next };
+            vehicle.position = { ...next };
+            vehicle.index++;
+            trafficDensity[next.y][next.x]++;
+          }
+        }
+      });
+    }
+
+    function resetMap() {
+      vehicles = [];
+      initGraph();
+    }
+
+    function loop() {
+      updateVehicles();
+      drawGrid();
+      requestAnimationFrame(loop);
+    }
+
+    // Initialize and start
+    initGraph();
+    loop();
+  </script>
+</body>
+</html>
